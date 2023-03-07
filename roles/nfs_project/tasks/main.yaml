@@ -1,0 +1,105 @@
+- name: [ check os family ]
+  fail:
+    msg: "the OS family not redhat"
+  when: ansible_os_family != "RedHat"
+  tags: os_check
+
+
+
+- name: [ install firewalld and nfs ]
+  yum:
+    name: '{{item}}'
+    state: present
+  loop:
+    - firewalld
+    - nfs-utils
+  tags: install_firewalld
+
+
+- name: [ start and enable firewalld nfs ]
+  service:
+    name:
+    state: started
+    enabled: yes
+  loop:
+    - firewalld
+    - nfs-server
+  tags: install_firewalld
+
+
+
+
+- name: [ add zone and service to firewalld]
+  firewalld:
+    zone: public
+    service: '{{item}}'
+    permanent: true
+    state: eanbaled
+    immediate: true
+  loop:
+    - ssh
+    - nfs
+  tags: input_rules_firewalld
+
+- name: [ reload firewalld ]
+  systemd:
+    name: firewalld
+    state: restarted
+    daemon_reload: yes
+  tags: firewalld_reload
+
+
+
+
+- name: [ create the data directory ]
+  file:
+    path: /data
+    state: directory
+    owner: nfsnobody
+    group: nfsnobody
+    mode: 0755
+  tags: create_data_directory
+
+- name: [ create export file ]
+  file:
+    path: /etc/exports
+    state: touch
+  tags: create_export_file
+
+
+
+
+- name: [ export server side]
+  lineinfile:
+    line: "/data {{item}}{rw,sync,no_root_ssquash,no_subtree_check}"
+    path: /etc/exports
+  with_items:
+    - "{{groups.nfs_client}}"
+  when: server_role == 'nfsserver'
+  tags: server_side_exports
+
+- name: [ export client side]
+  lineinfile:
+    line: "/data {{item}}{rw,sync,no_root_ssquash,no_subtree_check}"
+    path: /etc/exports
+  with_items:
+    - "{{groups.nfs_server}}"
+  when: server_role == 'nfsclient'
+  tags: client_side_exports
+
+
+- name: [ exportsfs ]
+  shell: "exportfs -arv"
+  tags: exportfs_run
+
+- name: [ mount nfs ]
+  mount:
+    src: "{{item}}:/data"
+    path: /data
+    opts: rw,sync,hard,intr
+    state: mounted
+    fstype: nfs
+  with_items:
+    - "{{groups.nfs_server}}"
+  when: server_role == 'nfsclient'
+  tags: mount_nfs
